@@ -43,18 +43,13 @@ export class MediationService extends EventEmitter {
   }
 
   public async requestMediation(connection: ConnectionRecord) {
-    const mediation = await this.create({
+    await this.create({
       connectionId: connection.id,
-      mediatorTerms: [],
-      recipientTerms: [],
       role: MediationRole.Recipient,
       state: MediationState.Requested,
     })
 
-    const mediationRequestMessage = new MediationRequestMessage({
-      mediator_terms: mediation.mediatorTerms,
-      recipient_terms: mediation.recipientTerms,
-    })
+    const mediationRequestMessage = new MediationRequestMessage({})
 
     return createOutboundMessage(connection, mediationRequestMessage)
   }
@@ -81,8 +76,6 @@ export class MediationService extends EventEmitter {
 
     const mediationRecord = await this.create({
       connectionId: connection.id,
-      mediatorTerms: messageContext.message.mediator_terms,
-      recipientTerms: messageContext.message.recipient_terms,
       role: MediationRole.Mediator,
       state: MediationState.Init,
     })
@@ -140,8 +133,6 @@ export class MediationService extends EventEmitter {
     mediationRecord.assertConnection(connection.id)
 
     // Update record
-    mediationRecord.mediatorTerms = messageContext.message.mediator_terms
-    mediationRecord.recipientTerms = messageContext.message.recipient_terms
     await this.updateState(mediationRecord, MediationState.Denied)
 
     return mediationRecord
@@ -158,17 +149,7 @@ export class MediationService extends EventEmitter {
   }
 
   public async findByConnectionId(id: string): Promise<MediationRecord | null> {
-    /*const mediationRecords = await this.mediationRepository.findByQuery({ connectionId: id });
-
-    if (mediationRecords.length > 1) {
-      throw new Error(`There is more than one mediation for given connection Id ${id}`);
-    }
-
-    if (mediationRecords.length < 1) {
-      return null;
-    }
-
-    return mediationRecords[0];*/
+    // TODO: Use findByQuery (connectionId as tag)
     const mediationRecords = await this.mediationRepository.findAll()
 
     for (const record of mediationRecords) {

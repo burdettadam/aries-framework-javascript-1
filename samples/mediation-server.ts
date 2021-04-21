@@ -199,5 +199,5 @@ app.get('/credentials', async (req, res) => {
 app.listen(PORT, '0.0.0.0', 0, async () => {
   await agent.init()
   messageReceiver.start(agent)
-  testLogger.debug(`JavaScript Edge Agent started on port ${PORT}`)
+  testLogger.debug(`JavaScript Mediator Agent started on port ${PORT}`)
 })

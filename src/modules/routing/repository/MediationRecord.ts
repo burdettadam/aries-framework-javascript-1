@@ -3,7 +3,6 @@ import { v4 as uuid } from 'uuid'
 import { BaseRecord, RecordType } from '../../../storage/BaseRecord'
 import { MediationRole } from '../models/MediationRole'
 import { MediationState } from '../models/MediationState'
-import { Term } from '../models/Term'
 
 export interface MediationRecordProps {
   id?: string
@@ -12,8 +11,6 @@ export interface MediationRecordProps {
   connectionId: string
   endpoint?: string
   routingKeys?: Verkey[]
-  mediatorTerms: Term[]
-  recipientTerms: Term[]
   state: MediationState
   role: MediationRole
 }
@@ -22,8 +19,6 @@ export class MediationRecord extends BaseRecord {
   public connectionId: string
   public endpoint: string
   public routingKeys: Verkey[]
-  public mediatorTerms: Term[]
-  public recipientTerms: Term[]
   public state: MediationState
   public role: MediationRole
 
@@ -35,8 +30,6 @@ export class MediationRecord extends BaseRecord {
     this.connectionId = props.connectionId
     this.endpoint = props.endpoint || ''
     this.routingKeys = props.routingKeys || []
-    this.mediatorTerms = props.mediatorTerms
-    this.recipientTerms = props.recipientTerms
     this.state = props.state || MediationState.Init
     this.role = props.role
     this.tags = props.tags || {}
