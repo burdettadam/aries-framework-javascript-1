@@ -289,6 +289,6 @@ app.get('/register-mediator', async (req, res) => {
 
 app.listen(PORT, '0.0.0.0', 0, async () => {
   await agent.init()
-  messageReceiver.start(agent)
+  messageReceiver.start(agent, agent.routing.getInboundConnection()?.connection)
   testLogger.debug(`JavaScript Edge Agent started on port ${PORT}`)
 })

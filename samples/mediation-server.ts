@@ -186,12 +186,19 @@ app.post('/receive-invitation', async (req, res) => {
   }
 })
 
-app.get('/connections', async (req, res) => {
+app.get('/api/connections/:verkey', async (req, res) => {
+  // TODO This endpoint is for testing purpose only. Return mediator connection by their verkey.
+  const verkey = req.params.verkey
+  const connection = await agent.connections.findConnectionByTheirKey(verkey)
+  res.send(connection)
+})
+
+app.get('/api/connections', async (req, res) => {
   const connections = await agent.connections.getAll()
   res.json(connections)
 })
 
-app.get('/credentials', async (req, res) => {
+app.get('/api/credentials', async (req, res) => {
   const credentials = await agent.credentials.getAll()
   res.json(credentials)
 })
