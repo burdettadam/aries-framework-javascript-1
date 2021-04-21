@@ -1,12 +1,12 @@
-import { IsString } from 'class-validator';
+import { IsString } from 'class-validator'
 
 export class Term {
   public constructor(options: { uri: string }) {
     if (options) {
-      this.uri = options.uri;
+      this.uri = options.uri
     }
   }
 
   @IsString()
-  public uri!: string;
+  public uri!: string
 }

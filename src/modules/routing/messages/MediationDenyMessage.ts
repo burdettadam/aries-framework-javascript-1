@@ -1,14 +1,14 @@
-import { Equals, IsArray, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Equals, IsArray, ValidateNested } from 'class-validator'
+import { Type } from 'class-transformer'
 
-import { AgentMessage } from '../../../agent/AgentMessage';
-import { RoutingMessageType as MessageType } from './RoutingMessageType';
-import { Term } from '../models/Term';
+import { AgentMessage } from '../../../agent/AgentMessage'
+import { RoutingMessageType as MessageType } from './RoutingMessageType'
+import { Term } from '../models/Term'
 
 export interface MediationDenyMessageOptions {
-  id?: string;
-  mediator_terms: Term[];
-  recipient_terms: Term[];
+  id?: string
+  mediator_terms: Term[]
+  recipient_terms: Term[]
 }
 
 /**
@@ -19,26 +19,26 @@ export interface MediationDenyMessageOptions {
  */
 export class MediationDenyMessage extends AgentMessage {
   public constructor(options: MediationDenyMessageOptions) {
-    super();
+    super()
 
     if (options) {
-      this.id = options.id || this.generateId();
-      this.mediator_terms = options.mediator_terms;
-      this.recipient_terms = options.recipient_terms;
+      this.id = options.id || this.generateId()
+      this.mediator_terms = options.mediator_terms
+      this.recipient_terms = options.recipient_terms
     }
   }
 
   @Equals(MediationDenyMessage.type)
-  public readonly type = MediationDenyMessage.type;
-  public static readonly type = MessageType.MediationDeny;
+  public readonly type = MediationDenyMessage.type
+  public static readonly type = MessageType.MediationDeny
 
   @Type(() => Term)
   @IsArray()
   @ValidateNested()
-  public mediator_terms!: Term[];
+  public mediator_terms!: Term[]
 
   @Type(() => Term)
   @IsArray()
   @ValidateNested()
-  public recipient_terms!: Term[];
+  public recipient_terms!: Term[]
 }
