@@ -9,18 +9,19 @@ import {
   ForwardMessage,
   MediationGrantedMessage,
   MediationDeniedMessage,
+  MediationRequestMessage,
 } from '../messages'
 import { Logger } from '../../../logger'
 import { EventEmitter } from 'events'
 import { Repository } from '../../../storage/Repository'
 import { ConnectionInvitationMessage, ConnectionRecord } from '../../connections'
-import { RoutingTable } from './MediationService'
+import { MediationEventType, MediationStateChangedEvent, RoutingTable } from './MediationService'
 import { InboundMessageContext } from '../../../agent/models/InboundMessageContext'
 import { OutboundMessage } from '../../../types'
 import { isIndyError } from '../../../utils/indyError'
-import { DefaultMediationRecord, MediationProps, MediationRecord } from '..'
+import { DefaultMediationRecord, MediationRecord, MediationRecordProps, MediationRole, MediationState } from '..'
 
-export enum MediationEventType {
+export enum MediationRecipientEventType {
   Granted = 'GRANTED',
   Denied = 'DENIED',
   KeylistUpdated = 'KEYLIST_UPDATED',
@@ -32,7 +33,7 @@ export class MediationRecipientService extends EventEmitter {
   private agentConfig: AgentConfig
   private mediatorRepository: Repository<MediationRecord>
   private messageSender: MessageSender
-  private defaultMediatorId?: string
+  private defaultMediator?: DefaultMediationRecord
 
   // TODO: Review this, placeholder
   public constructor(
@@ -53,6 +54,123 @@ export class MediationRecipientService extends EventEmitter {
     // Upon granting, set as default mediator.
   }
 
+  public async requestMediation(connection: ConnectionRecord) {
+    await this.create({
+      connectionId: connection.id,
+      role: MediationRole.Recipient,
+      state: MediationState.Requested,
+    })
+
+    const mediationRequestMessage = new MediationRequestMessage({})
+
+    return createOutboundMessage(connection, mediationRequestMessage)
+  }
+
+  public async createRoute(verkey: Verkey) {
+    this.logger.debug(`Registering route for verkey '${verkey}' at mediator`)
+
+    if (!this.agentConfig.inboundConnection) {
+      this.logger.debug(`There is no mediator. Creating route for verkey '${verkey}' skipped.`)
+    } else {
+      const routingConnection = this.agentConfig.inboundConnection.connection
+
+      const keylistUpdateMessage = new KeylistUpdateMessage({
+        updates: [
+          new KeylistUpdate({
+            action: KeylistUpdateAction.add,
+            recipientKey: verkey,
+          }),
+        ],
+      })
+
+      const outboundMessage = createOutboundMessage(routingConnection, keylistUpdateMessage)
+      await this.messageSender.sendMessage(outboundMessage)
+    }
+  }
+
+  public async processMediationGrant(messageContext: InboundMessageContext<MediationGrantMessage>) {
+    const connection = messageContext.connection
+
+    // Assert connection
+    connection?.assertReady()
+    if (!connection) {
+      throw new Error('No connection associated with incoming mediation grant message')
+    }
+
+    // Mediation record already exists
+    const mediationRecord = await this.findByConnectionId(messageContext.connection?.id || '')
+
+    if (!mediationRecord) {
+      throw new Error(`No mediation has been requested for this connection id: ${connection.id}`)
+    }
+
+    // Assert
+    mediationRecord.assertState(MediationState.Requested)
+    mediationRecord.assertConnection(connection.id)
+
+    // Update record
+    mediationRecord.endpoint = messageContext.message.endpoint
+    mediationRecord.routingKeys = messageContext.message.routing_keys
+    await this.updateState(mediationRecord, MediationState.Granted)
+
+    return mediationRecord
+  }
+
+  public async processMediationDeny(messageContext: InboundMessageContext<MediationDenyMessage>) {
+    const connection = messageContext.connection
+
+    // Assert connection
+    connection?.assertReady()
+    if (!connection) {
+      throw new Error('No connection associated with incoming mediation deny message')
+    }
+
+    // Mediation record already exists
+    const mediationRecord = await this.findByConnectionId(messageContext.connection?.id || '')
+
+    if (!mediationRecord) {
+      throw new Error(`No mediation has been requested for this connection id: ${connection.id}`)
+    }
+
+    // Assert
+    mediationRecord.assertState(MediationState.Requested)
+    mediationRecord.assertConnection(connection.id)
+
+    // Update record
+    await this.updateState(mediationRecord, MediationState.Denied)
+
+    return mediationRecord
+  }
+
+  public async create(options: MediationRecordProps): Promise<MediationRecord> {
+    const mediationRecord = new MediationRecord(options)
+    await this.mediatorRepository.save(mediationRecord)
+    return mediationRecord
+  }
+
+    /**
+   * Update the record to a new state and emit an state changed event. Also updates the record
+   * in storage.
+   *
+   * @param proofRecord The proof record to update the state for
+   * @param newState The state to update to
+   *
+   */
+     private async updateState(mediationRecord: MediationRecord, newState: MediationState) {
+      const previousState = mediationRecord.state
+  
+      mediationRecord.state = newState
+  
+      await this.mediatorRepository.update(mediationRecord)
+  
+      const event: MediationStateChangedEvent = {
+        mediationRecord,
+        previousState: previousState,
+      }
+  
+      this.emit(MediationEventType.StateChanged, event)
+    }
+
   // // TODO: Review this, placeholder
   // public async requestMediation(connectionRecord: ConnectionRecord): Promise<MediationRecipientRecord> {
   //   // Ensure that the connection is complete (check state) (validate, assert state)
@@ -63,47 +181,54 @@ export class MediationRecipientService extends EventEmitter {
 
   // recieve and handle the "granted" response from the mediator
   public handleGranted() {
-    this.emit(MediationEventType.Granted)
+    this.emit(MediationRecipientEventType.Granted)
   }
 
   // recieve and handle the "denied" response from the mediator.
   public handleDenied() {
-    this.emit(MediationEventType.Denied)
+    this.emit(MediationRecipientEventType.Denied)
   }
 
-  // Do we want to create a Mediator type?
-
-  public async find(mediatorId: string): Promise<string | MediationRecord | null> {
-    try {
-      const connection = await this.mediationRecipientRepository.find(mediatorId)
-
+  public async findById(mediatorId: string): Promise< MediationRecord> {
+      const connection = await this.mediatorRepository.find(mediatorId)
       return connection
-    } catch (error) {
-      if (isIndyError(error, 'WalletItemNotFound')) {
-        this.logger.debug(`Mediation recipient record with id '${mediatorId}' not found.`, {
-          indyError: 'WalletItemNotFound',
-        })
-        return null
-      } else {
-        throw error
+      // TODO - Handle errors
+  }
+
+  public async findByConnectionId(id: string): Promise<MediationRecord | null> {
+    // TODO: Use findByQuery (connectionId as tag)
+    const mediationRecords = await this.mediatorRepository.findAll()
+
+    for (const record of mediationRecords) {
+      if (record.connectionId == id) {
+        return record
       }
     }
+    return null
+  }
+
+  public async getMediators(): Promise<MediationRecord[] | null> {
+    return await this.mediatorRepository.findAll()
   }
 
   // Adding empty methods
-  public getDefaultMediatorId() {
-    // The default mediator id
-  }
-  public getDefaultMediator() {
-    // The default mediator
+  public getDefaultMediatorId(): string | undefined {
+    if (this.defaultMediator !== undefined) {
+      return this.defaultMediator.mediationId
+    }
+    return undefined
   }
 
-  public setDefaultMediator(mediatorId: string) {
-    // The default mediator
+  public getDefaultMediator() {
+    return this.defaultMediator
+  }
+
+  public setDefaultMediator(mediator: DefaultMediationRecord) {
+    this.defaultMediator = mediator
   }
 
   public clearDefaultMediator() {
-    // The default mediator
+    delete this.defaultMediator
   }
 
   public prepareKeylistUpdateMessage(
@@ -121,7 +246,7 @@ export class MediationRecipientService extends EventEmitter {
     // Method here
   }
 
-  public prepareRequest(connectionId: string, mediatorTerms: [string], recipientTerms: [string]) {
+  public prepareRequest(connectionId: string):OutboundMessage {
     // The default mediator
   }
 
@@ -133,16 +258,12 @@ export class MediationRecipientService extends EventEmitter {
     // The default mediator
   }
 
-  public getDefaultMediatorById(mediatorId: string) {
-    // The default mediator
-  }
-
   // Taken from Provisioning Service
   public async registerMediator(connectionRecord: ConnectionRecord): Promise<MediationRecord> {
     const mediationRecord = new MediationRecord({
-      connectionRecord,
+      connectionRecord.id
     })
-    await this.mediationRecipientRepository.save(mediationRecord)
+    await this.mediatorRepository.save(mediationRecord)
     return mediationRecord
   }
 

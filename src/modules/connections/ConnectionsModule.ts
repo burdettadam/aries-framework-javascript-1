@@ -6,6 +6,7 @@ import { MessageSender } from '../../agent/MessageSender'
 import { createOutboundMessage } from '../../agent/helpers'
 import { Dispatcher } from '../../agent/Dispatcher'
 import { ConnectionService, ConnectionEventType, ConnectionStateChangedEvent, TrustPingService } from './services'
+import { MediationService } from '../routing'
 import { ConnectionRecord } from './repository/ConnectionRecord'
 import { ConnectionState } from './models'
 import { ConnectionInvitationMessage } from './messages'
@@ -16,7 +17,7 @@ import {
   TrustPingMessageHandler,
   TrustPingResponseMessageHandler,
 } from './handlers'
-import { MediationService } from '../routing'
+import { ReturnRouteTypes } from '../../decorators/transport/TransportDecorator'
 
 export class ConnectionsModule {
   private agentConfig: AgentConfig
@@ -29,9 +30,9 @@ export class ConnectionsModule {
     dispatcher: Dispatcher,
     agentConfig: AgentConfig,
     connectionService: ConnectionService,
+    mediationService: MediationService,
     trustPingService: TrustPingService,
     messageSender: MessageSender,
-    mediationService: MediationService
   ) {
     this.agentConfig = agentConfig
     this.connectionService = connectionService
@@ -65,9 +66,9 @@ export class ConnectionsModule {
 
     // If agent has inbound connection, which means it's using a mediator, we need to create a route for newly created
     // connection verkey at mediator.
-    // if (this.agentConfig.inboundConnection) {
-    //   this.mediationService.createRoute(mediationRecord.verkey)
-    // }
+    if (this.agentConfig.inboundConnection) {
+      //this.mediationService.create(connectionRecord.verkey)
+    }
 
     return { connectionRecord, invitation }
   }
@@ -93,10 +94,23 @@ export class ConnectionsModule {
       alias: config?.alias,
     })
 
-    // if auto accept is enabled (either on the record or the global agent config)
-    // we directly send a connection request
-    if (connection.autoAcceptConnection ?? this.agentConfig.autoAcceptConnections) {
-      connection = await this.acceptInvitation(connection.id)
+    if (this.agentConfig.getEndpoint() == 'didcomm:transport/queue') {
+      const {
+        message: connectionRequest,
+        connectionRecord: connectionRecord,
+      } = await this.connectionService.createRequest(connection.id)
+
+      const outboundMessage = createOutboundMessage(connectionRecord, connectionRequest, connectionRecord.invitation)
+      outboundMessage.payload.setReturnRouting(ReturnRouteTypes.all)
+
+      await this.messageSender.sendMessage(outboundMessage)
+      await this.connectionService.returnWhenIsConnected(connectionRecord.id)
+    } else {
+      // if auto accept is enabled (either on the record or the global agent config)
+      // we directly send a connection request
+      if (connection.autoAcceptConnection ?? this.agentConfig.autoAcceptConnections) {
+        connection = await this.acceptInvitation(connection.id)
+      }
     }
 
     return connection
@@ -134,9 +148,9 @@ export class ConnectionsModule {
 
     // If agent has inbound connection, which means it's using a mediator,
     // we need to create a route for newly created connection verkey at mediator.
-    // if (this.agentConfig.inboundConnection) {
-    //   await this.mediationService.createRoute(connectionRecord.verkey)
-    // }
+    if (this.agentConfig.inboundConnection) {
+      //await this.mediationService.create(connectionRecord.verkey)
+    }
 
     const outbound = createOutboundMessage(connectionRecord, message, connectionRecord.invitation)
     await this.messageSender.sendMessage(outbound)
